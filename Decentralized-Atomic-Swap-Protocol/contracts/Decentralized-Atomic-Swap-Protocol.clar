@@ -128,3 +128,101 @@
     (ok true)
   )
 )
+
+;; Remove liquidity from the protocol
+(define-public (remove-liquidity (amount uint))
+  (let (
+    (provider-data (unwrap! (map-get? liquidity-providers { provider: tx-sender }) ERR-NOT-AUTHORIZED))
+    (current-liquidity (get total-liquidity provider-data))
+  )
+    ;; Check if provider has enough liquidity
+    (asserts! (>= current-liquidity amount) ERR-INVALID-AMOUNT)
+    
+    ;; Transfer STX from contract
+    (as-contract (try! (stx-transfer? amount tx-sender tx-sender)))
+    
+    ;; Update provider data
+    (map-set liquidity-providers
+      { provider: tx-sender }
+      (merge provider-data {
+        total-liquidity: (- current-liquidity amount)
+      })
+    )
+    
+    ;; Update total liquidity
+    (map-set protocol-stats
+      { stat-type: "total-liquidity" }
+      { value: (- (default-to u0 (get value (map-get? protocol-stats { stat-type: "total-liquidity" }))) amount) }
+    )
+    
+    (ok true)
+  )
+)
+
+;; Distribute fees to liquidity providers
+(define-private (distribute-fees (fee-amount uint))
+  (let (
+    (total-liquidity (default-to u0 (get value (map-get? protocol-stats { stat-type: "total-liquidity" }))))
+  )
+    ;; In a real implementation, this would distribute to all LPs proportionally
+    ;; For simplicity, we're just recording the fee
+    (map-set protocol-stats
+      { stat-type: "total-fees" }
+      { value: (+ fee-amount (default-to u0 (get value (map-get? protocol-stats { stat-type: "total-fees" })))) }
+    )
+    
+    (ok true)
+  )
+)
+
+;; Update user reputation score
+(define-private (update-reputation (user principal) (points uint))
+  (let (
+    (provider-data (default-to 
+      { total-liquidity: u0, rewards-earned: u0, fee-discount: u0, last-deposit-height: u0, reputation-score: u0 } 
+      (map-get? liquidity-providers { provider: user })
+    ))
+  )
+    (map-set liquidity-providers
+      { provider: user }
+      (merge provider-data {
+        reputation-score: (+ (get reputation-score provider-data) points)
+      })
+    )
+    
+    (ok true)
+  )
+)
+
+;; Check if an address is blacklisted
+(define-private (is-blacklisted (address principal))
+  
+  false
+)
+
+;; ----- Admin Functions -----
+
+;; Toggle circuit breaker
+(define-public (toggle-circuit-breaker)
+  (begin
+    (asserts! (is-eq tx-sender (var-get admin)) ERR-NOT-AUTHORIZED)
+    (ok (var-set circuit-breaker-active (not (var-get circuit-breaker-active))))
+  )
+)
+
+;; Update fee percentage
+(define-public (update-fee-percentage (new-fee uint))
+  (begin
+    (asserts! (is-eq tx-sender (var-get admin)) ERR-NOT-AUTHORIZED)
+    (asserts! (<= new-fee u1000) ERR-INVALID-AMOUNT) ;; Max 10%
+    (ok (var-set fee-percentage new-fee))
+  )
+)
+
+;; Transfer admin role
+(define-public (transfer-admin (new-admin principal))
+  (begin
+    (asserts! (is-eq tx-sender (var-get admin)) ERR-NOT-AUTHORIZED)
+    (ok (var-set admin new-admin))
+  )
+)
