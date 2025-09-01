@@ -394,3 +394,22 @@
     (ok true)
   )
 )
+;; Helper to get governor weight
+(define-private (get-governor-weight (key { address: principal}))
+  (let ((governor-data (default-to { active: false, weight: u0 } (map-get? governors key))))
+    (if (get active governor-data)
+      (get weight governor-data)
+      u0
+    )
+  )
+)
+
+;; Get proposal details
+(define-read-only (get-proposal-details (proposal-id uint))
+  (map-get? governance-proposals { proposal-id: proposal-id })
+)
+
+;; Get vote details
+(define-read-only (get-vote-details (proposal-id uint) (voter principal))
+  (map-get? proposal-votes { proposal-id: proposal-id, voter: voter })
+)
