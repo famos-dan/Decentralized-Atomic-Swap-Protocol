@@ -77,3 +77,54 @@
     )
   )
 )
+
+;; Check user reputation score
+(define-private (check-reputation (user principal))
+  (let (
+    (user-data (default-to { total-liquidity: u0, rewards-earned: u0, fee-discount: u0, last-deposit-height: u0, reputation-score: u0 } 
+               (map-get? liquidity-providers { provider: user })))
+    (reputation (get reputation-score user-data))
+  )
+    (>= reputation (var-get min-reputation-required))
+  )
+)
+
+;; Validate BTC proof
+(define-private (validate-btc-proof (proof (buff 1024)) (btc-tx-id (buff 32)) (btc-address (buff 34)) (amount uint))
+ 
+  (begin
+    (print { event: "validate-btc-proof", proof: proof, btc-tx-id: btc-tx-id })
+    true
+  )
+)
+
+;; Add liquidity to the protocol
+(define-public (add-liquidity (amount uint))
+  (let (
+    (provider-data (default-to 
+      { total-liquidity: u0, rewards-earned: u0, fee-discount: u0, last-deposit-height: u0, reputation-score: u0 } 
+      (map-get? liquidity-providers { provider: tx-sender })
+    ))
+  )
+    ;; Transfer STX to contract
+    (try! (stx-transfer? amount tx-sender (as-contract tx-sender)))
+    
+    ;; Update provider data
+    (map-set liquidity-providers
+      { provider: tx-sender }
+      (merge provider-data {
+        total-liquidity: (+ (get total-liquidity provider-data) amount),
+        last-deposit-height: stacks-block-height,
+        reputation-score: (+ (get reputation-score provider-data) u1)
+      })
+    )
+    
+    ;; Update total liquidity
+    (map-set protocol-stats
+      { stat-type: "total-liquidity" }
+      { value: (+ amount (default-to u0 (get value (map-get? protocol-stats { stat-type: "total-liquidity" })))) }
+    )
+    
+    (ok true)
+  )
+)
