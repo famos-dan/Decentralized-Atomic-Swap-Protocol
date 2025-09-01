@@ -251,3 +251,70 @@
 (define-read-only (is-circuit-breaker-active)
   (var-get circuit-breaker-active)
 )
+
+;; Additional Error Codes
+(define-constant ERR-PROPOSAL-NOT-FOUND (err u412))
+(define-constant ERR-ALREADY-VOTED (err u413))
+(define-constant ERR-PROPOSAL-CLOSED (err u414))
+(define-constant ERR-NOT-GOVERNOR (err u415))
+(define-constant ERR-INVALID-LP-TOKEN (err u416))
+(define-constant ERR-INSUFFICIENT-STAKE (err u417))
+(define-constant ERR-VAULT-LOCKED (err u418))
+(define-constant ERR-FLASH-LOAN-NOT-REPAID (err u419))
+
+;; Governance structure
+(define-map governors
+  { address: principal }
+  { active: bool, weight: uint }
+)
+
+(define-map governance-proposals
+  { proposal-id: uint }
+  {
+    proposer: principal,
+    title: (string-ascii 50),
+    description: (string-ascii 500),
+    action: (string-ascii 50),
+    parameter: uint,
+    votes-for: uint,
+    votes-against: uint,
+    start-height: uint,
+    end-height: uint,
+    executed: bool
+  }
+)
+
+(define-map proposal-votes
+  { proposal-id: uint, voter: principal }
+  { vote: bool, weight: uint }
+)
+
+(define-data-var next-proposal-id uint u1)
+(define-data-var proposal-duration uint u144) ;; ~1 day in Stacks blocks
+(define-data-var min-proposal-threshold uint u100000000) ;; Min STX to create proposal (100 STX)
+(define-data-var quorum-threshold uint u60) ;; 60% quorum needed
+
+;; Add governor
+(define-public (add-governor (address principal) (weight uint))
+  (begin
+    (asserts! (is-eq tx-sender (var-get admin)) ERR-NOT-AUTHORIZED)
+    (map-set governors { address: address } { active: true, weight: weight })
+    (ok true)
+  )
+)
+
+;; Remove governor
+(define-public (remove-governor (address principal))
+  (begin
+    (asserts! (is-eq tx-sender (var-get admin)) ERR-NOT-AUTHORIZED)
+    (map-set governors { address: address } { active: false, weight: u0 })
+    (ok true)
+  )
+)
+
+;; Check if address is governor
+(define-read-only (is-governor (address principal))
+  (let ((governor-data (default-to { active: false, weight: u0 } (map-get? governors { address: address }))))
+    (get active governor-data)
+  )
+)
