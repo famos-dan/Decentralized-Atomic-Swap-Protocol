@@ -318,3 +318,79 @@
     (get active governor-data)
   )
 )
+
+;; Create governance proposal
+(define-public (create-proposal (title (string-ascii 50)) (description (string-ascii 500)) (action (string-ascii 50)) (parameter uint))
+  (let (
+    (proposal-id (var-get next-proposal-id))
+    (provider-data (default-to { total-liquidity: u0, rewards-earned: u0, fee-discount: u0, last-deposit-height: u0, reputation-score: u0 } 
+                  (map-get? liquidity-providers { provider: tx-sender })))
+  )
+    ;; Check if caller can create proposals
+    (asserts! (or 
+                (is-governor tx-sender) 
+                (>= (get total-liquidity provider-data) (var-get min-proposal-threshold))
+              ) 
+              ERR-INSUFFICIENT-STAKE)
+    
+    ;; Create the proposal
+    (map-set governance-proposals
+      { proposal-id: proposal-id }
+      {
+        proposer: tx-sender,
+        title: title,
+        description: description,
+        action: action,
+        parameter: parameter,
+        votes-for: u0,
+        votes-against: u0,
+        start-height: stacks-block-height,
+        end-height: (+ stacks-block-height (var-get proposal-duration)),
+        executed: false
+      }
+    )
+    
+    ;; Increment proposal counter
+    (var-set next-proposal-id (+ proposal-id u1))
+    
+    (ok proposal-id)
+  )
+)
+
+;; Vote on governance proposal
+(define-public (vote-on-proposal (proposal-id uint) (vote bool))
+  (let (
+    (proposal (unwrap! (map-get? governance-proposals { proposal-id: proposal-id }) ERR-PROPOSAL-NOT-FOUND))
+    (governor-data (default-to { active: false, weight: u0 } (map-get? governors { address: tx-sender })))
+    (voter-weight (get weight governor-data))
+  )
+    ;; Check if proposal is still active
+    (asserts! (< stacks-block-height (get end-height proposal)) ERR-PROPOSAL-CLOSED)
+    
+    ;; Check if voter is authorized
+    (asserts! (get active governor-data) ERR-NOT-GOVERNOR)
+    
+    ;; Check if voter has already voted
+    (asserts! (is-none (map-get? proposal-votes { proposal-id: proposal-id, voter: tx-sender })) ERR-ALREADY-VOTED)
+    
+    ;; Record vote
+    (map-set proposal-votes
+      { proposal-id: proposal-id, voter: tx-sender }
+      { vote: vote, weight: voter-weight }
+    )
+    
+    ;; Update proposal vote counts
+    (if vote
+      (map-set governance-proposals
+        { proposal-id: proposal-id }
+        (merge proposal { votes-for: (+ (get votes-for proposal) voter-weight) })
+      )
+      (map-set governance-proposals
+        { proposal-id: proposal-id }
+        (merge proposal { votes-against: (+ (get votes-against proposal) voter-weight) })
+      )
+    )
+    
+    (ok true)
+  )
+)
